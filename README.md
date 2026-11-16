@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 Native KDE Plasma / freedesktop notifications for [OpenCode](https://opencode.ai) on Linux,
-delivered straight to D-Bus through `notify-send`.
+delivered straight to D-Bus through `notify-send`. Clicking a bubble brings the terminal
+running OpenCode back — across virtual desktops, Plasma Activities and monitors.
 
 ## Why this exists
 
@@ -18,6 +19,9 @@ locally). This plugin bypasses the problem by talking to `org.freedesktop.Notifi
 - OpenCode 2.x
 - Linux with a freedesktop notification server (KDE Plasma, GNOME, dunst, mako, …)
 - `notify-send` on `PATH` (`libnotify` / `libnotify-bin`)
+- For click-to-focus: KDE Plasma 6 and `gdbus` (part of glib2, normally already installed)
+- Clickable bubbles need libnotify 0.8 or newer; older versions still show plain,
+  non-interactive notifications
 
 ## Installation
 
@@ -64,11 +68,15 @@ opencode plugin add opencode-kde-notify
 | `session.execution.interrupted`      | Execution interrupted | `process-stop`       | normal, 8 s      |
 | `permission.asked`                   | Permission required   | `dialog-password`    | critical, sticky |
 
-Subagent sessions are ignored — only the root session notifies. All user-facing strings live in
+Subagent sessions are ignored — only the root session notifies. All of these bubbles are
+clickable on Plasma 6 (see [Click to focus](#click-to-focus)); the user-facing strings live in
 `src/plugin.ts`.
 
 ## Behavior
 
+- **Click:** the bubble carries a hidden `default` action. While the bubble is visible, clicking
+  it brings the terminal back. Plasma keeps expired notifications in history but drops their
+  actions, so entries in the history are not clickable.
 - **Focus:** the native attention API is used as a focus probe. A notification is skipped only when
   the focus is known (`focused`) or when notifications are turned off; on `focus_unknown` it still
   notifies, so events are never lost.
@@ -78,6 +86,45 @@ Subagent sessions are ignored — only the root session notifies. All user-facin
   terminal) it takes over. This prevents duplicate bubbles.
 - **Identity:** notifications carry a `desktop-entry=opencode` hint and the plugin installs
   `~/.local/share/applications/opencode.desktop` for it (see below).
+
+## Click to focus
+
+Clicking a notification brings the terminal running OpenCode back:
+
+- leaves "show desktop" and unminimizes the window;
+- switches to the window's Plasma Activity and virtual desktop (per output when KWin supports
+  separate desktops per screen);
+- raises and activates it, including on another monitor;
+- selects the pane and window in tmux, and focuses the OpenCode tab of the session.
+
+Plasma calls the notification's `default` action when the body is clicked. Wayland has no
+window-control API such as `xdotool`, so the plugin asks KWin to do it: it writes a throwaway
+script into `$XDG_RUNTIME_DIR/opencode-kde-notify` and runs it through
+`org.kde.KWin /Scripting`. The window is matched by pid. The plugin derives the pids from the
+TUI process ancestry and, under tmux, from the attached tmux client — tmux daemonizes, so the TUI
+no longer descends from the terminal. `KITTY_PID` is used as an extra hint.
+
+Limitations:
+
+- A bubble is only clickable while it is visible; Plasma removes the actions from notifications
+  that have expired.
+- Terminal emulators that host several windows in one process (kitty, konsole) share a pid. The
+  plugin prefers the active window and otherwise the topmost one. Use `focusCommand` to pick an
+  exact window, for example with kitty's remote control:
+  ```jsonc
+  {
+    "plugins": [
+      {
+        "package": "opencode-kde-notify",
+        "options": { "focusCommand": "kitty @ --match id:$KITTY_WINDOW_ID focus-window" },
+      },
+    ],
+  }
+  ```
+  This requires `allow_remote_control` in `kitty.conf`.
+- Click-to-focus needs a KDE session. On other desktops the action is omitted unless
+  `focusCommand` is configured (the command is then the whole focus implementation).
+- `focusCommand` runs through `sh -c` on click by design; treat it like any other shell alias.
 
 ## Notification history
 
@@ -108,6 +155,8 @@ Options (all have sensible defaults — usually nothing to configure):
 | `mode`         | `auto`, `always`    | `auto`    | `auto` acts only where the native path fails; `always` uses D-Bus every time |
 | `when`         | `blurred`, `always` | `blurred` | Notify only when the terminal is unfocused, or always                        |
 | `desktopEntry` | `true`, `false`     | `true`    | Install `opencode.desktop` so notifications reach the Plasma history         |
+| `focusOnClick` | `true`, `false`     | `true`    | Click a bubble to bring the terminal back                                    |
+| `focusCommand` | shell command       | unset     | Extra command run on click, after the built-in KWin focus step               |
 
 Through configuration:
 
@@ -128,6 +177,8 @@ Or through the environment, without editing configuration:
 OPENCODE_KDE_NOTIFY_MODE=always
 OPENCODE_KDE_NOTIFY_WHEN=always
 OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY=false
+OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK=false
+OPENCODE_KDE_NOTIFY_FOCUS_COMMAND='kitty @ --match id:$KITTY_WINDOW_ID focus-window'
 ```
 
 Environment variables are used only when the matching option is not set.
@@ -137,7 +188,7 @@ Environment variables are used only when the matching option is not set.
 No dependencies required:
 
 ```sh
-node --test test/*.test.ts        # 36 tests, Node 22.18+ (native type stripping)
+node --test test/*.test.ts        # 63 tests, Node 22.18+ (native type stripping)
 ```
 
 With type checking:
@@ -153,19 +204,21 @@ npm run typecheck
 src/
   index.ts    server part (package identity)
   tui.ts      TUI part (entrypoint loaded by OpenCode)
-  plugin.ts   wiring: events → focus probe → notification
+  plugin.ts   wiring: events → focus probe → notification → click handler
   config.ts   options, environment variables, terminal detection
   desktop.ts  desktop-entry identity and its installation
-  notify.ts   argument building and notify-send execution
+  focus.ts    click-to-focus: process ancestry, KWin script, tmux selection
+  notify.ts   argument building and click-aware notify-send execution
 test/
   config.test.ts
   desktop.test.ts
+  focus.test.ts
   notify.test.ts
   plugin.test.ts
 ```
 
-`plugin.ts` imports nothing from the OpenCode SDK at runtime (types only), and `exec` and the file
-access are injected, so the tests run on plain Node.
+`plugin.ts` imports nothing from the OpenCode SDK at runtime (types only), and process execution,
+child processes and file access are injected, so the tests run on plain Node.
 
 ## Disabling
 
@@ -177,10 +230,17 @@ Add the id to `plugins` in `cli.json`, prefixed with `-`:
 }
 ```
 
+To keep the notifications but stop making them clickable, set `focusOnClick: false` (or
+`OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK=false`).
+
 ## Troubleshooting
 
 - **Nothing shows up:** test D-Bus with
   `notify-send --app-name=OpenCode "test" "works?"`.
+- **Clicking does nothing:** click-to-focus needs Plasma 6 and `gdbus`. Check the plugin log, make
+  sure the bubble is still visible (expired history entries are not clickable), and probe KWin with
+  `gdbus call --session --dest org.kde.KWin --object-path /Scripting --method org.kde.kwin.Scripting.isScriptLoaded opencode-kde-notify-test`.
+  For an exact window in a multi-window terminal process, set `focusCommand`.
 - **Bubble shows up, history stays empty:** check that
   `~/.local/share/applications/opencode.desktop` exists and that `plasmashell` has not restarted
   since the notification (the history is in memory only).
