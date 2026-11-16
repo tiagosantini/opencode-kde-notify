@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-16
+
 ### Added
 
 - Clicking a notification brings the terminal running OpenCode back: it leaves "show desktop",
@@ -34,5 +36,6 @@ All notable changes to this project are documented here. The format follows
 
 - Desktop-entry identity so Plasma keeps notifications in its history.
 
-[unreleased]: https://github.com/tiagosantini/opencode-kde-notify/compare/v0.1.1...HEAD
+[unreleased]: https://github.com/tiagosantini/opencode-kde-notify/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tiagosantini/opencode-kde-notify/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/tiagosantini/opencode-kde-notify/releases/tag/v0.1.1
