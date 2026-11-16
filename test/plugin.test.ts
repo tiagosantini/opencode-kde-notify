@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { start } from '../src/plugin.ts';
+import { DESKTOP_FILE, desktopFileContent } from '../src/desktop.ts';
 
 type Ctx = Parameters<typeof start>[0];
 type Runtime = Parameters<typeof start>[1];
@@ -16,17 +17,24 @@ interface HarnessOptions {
   readonly options?: Record<string, unknown>;
   readonly env?: Record<string, string | undefined>;
   readonly sessions?: Record<string, FakeSession>;
+  readonly files?: Record<string, string>;
+  readonly failWrites?: boolean;
 }
 
 const TMUX_WITH_KITTY = {
   TMUX: '/tmp/tmux-1000/default,1,0',
   KITTY_WINDOW_ID: '1',
+  HOME: '/home/user',
 };
+
+const DESKTOP_PATH = `/home/user/.local/share/applications/${DESKTOP_FILE}`;
 
 function harness(input: HarnessOptions = {}) {
   const handlers = new Map<string, (event: { data: unknown }) => void>();
   const calls: Array<{ command: string; args: readonly string[] }> = [];
   const logs: string[] = [];
+  const files = new Map(Object.entries(input.files ?? {}));
+  const directories: string[] = [];
   const state = { skip: input.skip, probes: 0 };
   const sessions = input.sessions ?? {
     ses_root: { title: 'Fix the dashboard login' },
@@ -62,6 +70,16 @@ function harness(input: HarnessOptions = {}) {
       logs.push(message);
     },
     env: input.env ?? TMUX_WITH_KITTY,
+    fs: {
+      readFile: (path) => files.get(path),
+      writeFile: (path, content) => {
+        if (input.failWrites) throw new Error('EROFS: read-only file system');
+        files.set(path, content);
+      },
+      makeDirectory: (path) => {
+        directories.push(path);
+      },
+    },
   };
 
   const fire = (type: string, data: unknown) => {
@@ -70,7 +88,7 @@ function harness(input: HarnessOptions = {}) {
     handler({ data });
   };
 
-  return { ctx, runtime, handlers, calls, logs, state, fire };
+  return { ctx, runtime, handlers, calls, logs, state, files, directories, fire };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -204,4 +222,37 @@ test('mode=always acts even in kitty without tmux', () => {
 
   assert.ok(cleanup);
   assert.equal(h.handlers.size, 5);
+});
+
+test('installs the desktop entry so Plasma can attribute notifications', () => {
+  const h = harness();
+  const cleanup = start(h.ctx, h.runtime);
+  assert.ok(cleanup);
+
+  assert.deepEqual(h.directories, ['/home/user/.local/share/applications']);
+  assert.equal(h.files.get(DESKTOP_PATH), desktopFileContent());
+  cleanup();
+});
+
+test('desktopEntry=false leaves the filesystem untouched', () => {
+  const h = harness({ options: { desktopEntry: false } });
+  const cleanup = start(h.ctx, h.runtime);
+  assert.ok(cleanup);
+
+  assert.deepEqual(h.directories, []);
+  assert.equal(h.files.size, 0);
+  cleanup();
+});
+
+test('a failing filesystem does not stop the notification', async () => {
+  const h = harness({ failWrites: true, skip: 'blurred' });
+  const cleanup = start(h.ctx, h.runtime);
+  assert.ok(cleanup);
+
+  h.fire('session.execution.succeeded', { sessionID: 'ses_root' });
+  await settle();
+
+  assert.equal(h.calls.length, 1);
+  assert.match(h.logs.join('\n'), /could not write the desktop entry/);
+  cleanup();
 });

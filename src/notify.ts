@@ -5,6 +5,8 @@
  * independent from OpenCode and from the graphical session.
  */
 
+import { DESKTOP_ENTRY } from './desktop.ts';
+
 export type Urgency = 'low' | 'normal' | 'critical';
 
 export interface Notice {
@@ -36,6 +38,9 @@ export function buildArgs(notice: Notice): string[] {
     `--icon=${notice.icon}`,
     `--urgency=${notice.urgency}`,
     `--expire-time=${notice.expire}`,
+    // Gives Plasma an identity to resolve; otherwise the notification lands in
+    // the `@other` bucket, which is excluded from the history by default.
+    `--hint=string:desktop-entry:${DESKTOP_ENTRY}`,
     notice.title,
     notice.body,
   ];

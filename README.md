@@ -76,15 +76,38 @@ Subagent sessions are ignored — only the root session notifies. All user-facin
 - **`auto` mode:** the plugin stays inactive when running inside kitty **without** tmux, because
   there OSC 99 reaches the terminal and OpenCode already notifies. Inside tmux (or in any other
   terminal) it takes over. This prevents duplicate bubbles.
+- **Identity:** notifications carry a `desktop-entry=opencode` hint and the plugin installs
+  `~/.local/share/applications/opencode.desktop` for it (see below).
+
+## Notification history
+
+Plasma only keeps a notification in the system tray history when it can attribute it to an
+application: it resolves the `desktop-entry` hint against an installed `.desktop` file. A
+notification without one falls into the `@other` bucket, and Plasma ships that bucket with
+`ShowInHistory=false` — the bubble appears, the history stays empty. Plain `notify-send` has the
+same fate.
+
+That is why the plugin writes `opencode.desktop` into `$XDG_DATA_HOME/applications` (usually
+`~/.local/share/applications`) on startup: it gives the notifications an identity Plasma can
+resolve, so they land in the history with the default settings.
+
+- The file is marked with `X-OpenCode-KDE-Notify=true`. It is only rewritten when the plugin
+  created it; a real `opencode.desktop` installed by something else is never touched.
+- `NoDisplay=true` keeps it out of the application launcher.
+- Set `desktopEntry: false` (or `OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY=false`) to stop the file from
+  being written, or delete it — the notifications keep working, they just lose their history entry.
+- Plasma keeps the history in memory only, so it is emptied whenever `plasmashell` restarts
+  ([KDE bug 486483](https://bugs.kde.org/show_bug.cgi?id=486483)).
 
 ## Configuration
 
 Options (all have sensible defaults — usually nothing to configure):
 
-| Option | Values              | Default   | Description                                                                  |
-| ------ | ------------------- | --------- | ---------------------------------------------------------------------------- |
-| `mode` | `auto`, `always`    | `auto`    | `auto` acts only where the native path fails; `always` uses D-Bus every time |
-| `when` | `blurred`, `always` | `blurred` | Notify only when the terminal is unfocused, or always                        |
+| Option         | Values              | Default   | Description                                                                  |
+| -------------- | ------------------- | --------- | ---------------------------------------------------------------------------- |
+| `mode`         | `auto`, `always`    | `auto`    | `auto` acts only where the native path fails; `always` uses D-Bus every time |
+| `when`         | `blurred`, `always` | `blurred` | Notify only when the terminal is unfocused, or always                        |
+| `desktopEntry` | `true`, `false`     | `true`    | Install `opencode.desktop` so notifications reach the Plasma history         |
 
 Through configuration:
 
@@ -104,6 +127,7 @@ Or through the environment, without editing configuration:
 ```sh
 OPENCODE_KDE_NOTIFY_MODE=always
 OPENCODE_KDE_NOTIFY_WHEN=always
+OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY=false
 ```
 
 Environment variables are used only when the matching option is not set.
@@ -113,7 +137,7 @@ Environment variables are used only when the matching option is not set.
 No dependencies required:
 
 ```sh
-node --test test/*.test.ts        # 22 tests, Node 22.18+ (native type stripping)
+node --test test/*.test.ts        # 36 tests, Node 22.18+ (native type stripping)
 ```
 
 With type checking:
@@ -131,15 +155,17 @@ src/
   tui.ts      TUI part (entrypoint loaded by OpenCode)
   plugin.ts   wiring: events → focus probe → notification
   config.ts   options, environment variables, terminal detection
+  desktop.ts  desktop-entry identity and its installation
   notify.ts   argument building and notify-send execution
 test/
   config.test.ts
+  desktop.test.ts
   notify.test.ts
   plugin.test.ts
 ```
 
-`plugin.ts` imports nothing from the OpenCode SDK at runtime (types only), and `exec` is injected,
-so the tests run on plain Node.
+`plugin.ts` imports nothing from the OpenCode SDK at runtime (types only), and `exec` and the file
+access are injected, so the tests run on plain Node.
 
 ## Disabling
 
@@ -155,6 +181,9 @@ Add the id to `plugins` in `cli.json`, prefixed with `-`:
 
 - **Nothing shows up:** test D-Bus with
   `notify-send --app-name=OpenCode "test" "works?"`.
+- **Bubble shows up, history stays empty:** check that
+  `~/.local/share/applications/opencode.desktop` exists and that `plasmashell` has not restarted
+  since the notification (the history is in memory only).
 - **Plugin errors:** `~/.local/share/opencode/log/opencode.log` (look for `kde-notify`).
 - **Plugin detection:** `opencode plugin list` should show `kde.notify`.
 - **After structural changes:** run `/reload` in the TUI to reload plugins.

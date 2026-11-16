@@ -1,6 +1,7 @@
 import type { Plugin } from '@opencode/plugin/tui';
 
 import { readSettings, shouldActivate, type When } from './config.ts';
+import { ensureDesktopEntry, type FileSystem } from './desktop.ts';
 import { compact, createSender, type ExecFile, type Log, type Notice } from './notify.ts';
 
 type Context = Plugin.Context;
@@ -10,6 +11,8 @@ export interface Runtime {
   readonly exec: ExecFile;
   readonly log?: Log;
   readonly env?: NodeJS.ProcessEnv;
+  /** Injected file access, used to install `opencode.desktop`. */
+  readonly fs?: FileSystem;
 }
 
 export type Cleanup = () => void;
@@ -72,6 +75,10 @@ export function start(ctx: Context, runtime: Runtime): Cleanup | undefined {
   if (!shouldActivate(settings, env)) {
     log('[kde-notify] kitty without tmux: native OSC 99 notifications already work');
     return;
+  }
+
+  if (settings.desktopEntry && runtime.fs) {
+    ensureDesktopEntry(runtime.fs, env, log);
   }
 
   const send = createSender(runtime.exec, log);

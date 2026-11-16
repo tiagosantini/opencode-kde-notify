@@ -9,6 +9,7 @@ import {
   createSender,
   type Notice,
 } from '../src/notify.ts';
+import { DESKTOP_ENTRY } from '../src/desktop.ts';
 
 const notice: Notice = {
   title: 'Task completed',
@@ -36,9 +37,15 @@ test('buildArgs assembles the notify-send command line', () => {
     '--icon=dialog-information',
     '--urgency=normal',
     '--expire-time=8000',
+    '--hint=string:desktop-entry:opencode',
     'Task completed',
     'Fix the dashboard login',
   ]);
+});
+
+test('buildArgs points the desktop-entry hint at the packaged identity', () => {
+  const hint = buildArgs(notice).find((arg) => arg.startsWith('--hint='));
+  assert.equal(hint, `--hint=string:desktop-entry:${DESKTOP_ENTRY}`);
 });
 
 test('createSender runs notify-send with the expected arguments', () => {

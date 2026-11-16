@@ -12,6 +12,7 @@ test('reads mode and when from the plugin options', () => {
   assert.deepEqual(readSettings({ mode: 'always', when: 'always' }, {}), {
     mode: 'always',
     when: 'always',
+    desktopEntry: true,
   });
 });
 
@@ -20,12 +21,17 @@ test('options take precedence over environment variables', () => {
   assert.deepEqual(readSettings({ mode: 'auto', when: 'blurred' }, env), {
     mode: 'auto',
     when: 'blurred',
+    desktopEntry: true,
   });
 });
 
 test('accepts environment variables as an alternative to configuration', () => {
   const env = { OPENCODE_KDE_NOTIFY_MODE: 'always', OPENCODE_KDE_NOTIFY_WHEN: 'always' };
-  assert.deepEqual(readSettings(undefined, env), { mode: 'always', when: 'always' });
+  assert.deepEqual(readSettings(undefined, env), {
+    mode: 'always',
+    when: 'always',
+    desktopEntry: true,
+  });
 });
 
 test('ignores invalid values', () => {
@@ -33,6 +39,27 @@ test('ignores invalid values', () => {
   assert.deepEqual(
     readSettings(undefined, { OPENCODE_KDE_NOTIFY_MODE: 'never', OPENCODE_KDE_NOTIFY_WHEN: 'x' }),
     DEFAULT_SETTINGS,
+  );
+});
+
+test('reads the desktopEntry switch from options and environment', () => {
+  assert.equal(readSettings({ desktopEntry: false }, {}).desktopEntry, false);
+  assert.equal(readSettings({ desktopEntry: true }, {}).desktopEntry, true);
+  assert.equal(
+    readSettings(undefined, { OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY: 'false' }).desktopEntry,
+    false,
+  );
+  assert.equal(
+    readSettings(undefined, { OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY: 'true' }).desktopEntry,
+    true,
+  );
+});
+
+test('keeps desktopEntry on for unusable values', () => {
+  assert.equal(readSettings({ desktopEntry: 'nope' }, {}).desktopEntry, true);
+  assert.equal(
+    readSettings(undefined, { OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY: 'never' }).desktopEntry,
+    true,
   );
 });
 
