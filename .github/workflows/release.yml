@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate the release without publishing, tagging or creating a release
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # push the release tag and create the GitHub release
+  id-token: write # npm trusted publishing (OIDC), no NPM_TOKEN needed
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' && 'true' || 'false' }}
+  PACKAGE: opencode-kde-notify
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Determine release state
+        id: state
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            tag_exists=true
+          else
+            tag_exists=false
+          fi
+
+          if npm view "$PACKAGE@$version" version >/dev/null 2>&1; then
+            npm_exists=true
+          else
+            npm_exists=false
+          fi
+
+          if [ "$tag_exists" = true ] && [ "$npm_exists" = true ]; then
+            release=false
+          else
+            release=true
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag_exists=$tag_exists"
+            echo "npm_exists=$npm_exists"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release state"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| version | \`$version\` |"
+            echo "| tag \`$tag\` | $tag_exists |"
+            echo "| npm \`$version\` | $npm_exists |"
+            echo "| action | $([ "$release" = true ] && echo release || echo 'nothing to do') |"
+            echo "| dry run | $DRY_RUN |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        if: steps.state.outputs.release == 'true' && env.DRY_RUN != 'true'
+        run: npm ci
+
+      - name: Test
+        if: steps.state.outputs.release == 'true' && env.DRY_RUN != 'true'
+        run: npm test
+
+      - name: Typecheck
+        if: steps.state.outputs.release == 'true' && env.DRY_RUN != 'true'
+        run: npm run typecheck
+
+      - name: Format check
+        if: steps.state.outputs.release == 'true' && env.DRY_RUN != 'true'
+        run: npx --yes prettier@3 --check .
+
+      - name: Collect release notes
+        if: steps.state.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.state.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes=$(awk -v version="$VERSION" '
+            {
+              prefix = "## [" version "]"
+              if (index($0, prefix) == 1) {
+                after = substr($0, length(prefix) + 1, 1)
+                if (after == "" || after == " ") {
+                  capture = 1
+                  next
+                }
+              }
+              if (capture && index($0, "## [") == 1) exit
+              if (capture && $0 ~ /^\[[^]]+\]:/) exit
+              if (capture) print
+            }
+          ' CHANGELOG.md)
+
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no section for $VERSION; finalize the changelog before merging"
+            exit 1
+          fi
+
+          printf '%s\n' "$notes" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Publish to npm
+        if: steps.state.outputs.release == 'true' && steps.state.outputs.npm_exists == 'false' && env.DRY_RUN != 'true'
+        run: npm publish --access public
+
+      - name: Push the release tag
+        if: steps.state.outputs.release == 'true' && steps.state.outputs.tag_exists == 'false' && env.DRY_RUN != 'true'
+        env:
+          VERSION: ${{ steps.state.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Create the GitHub release
+        if: steps.state.outputs.release == 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.state.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "GitHub release v$VERSION already exists"
+          else
+            gh release create "v$VERSION" \
+              --verify-tag \
+              --title "v$VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --latest
+          fi
+
+      - name: Dry run
+        if: steps.state.outputs.release == 'true' && env.DRY_RUN == 'true'
+        env:
+          VERSION: ${{ steps.state.outputs.version }}
+        run: |
+          echo "Dry run: would publish $PACKAGE@$VERSION, push v$VERSION and create the GitHub release"
