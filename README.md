@@ -113,7 +113,7 @@ Environment variables are used only when the matching option is not set.
 No dependencies required:
 
 ```sh
-node --test test/        # 22 tests, Node 22.18+ (native type stripping)
+node --test test/*.test.ts        # 22 tests, Node 22.18+ (native type stripping)
 ```
 
 With type checking:
@@ -167,7 +167,7 @@ Issues and pull requests are welcome at
 [github.com/tiagosantini/opencode-kde-notify](https://github.com/tiagosantini/opencode-kde-notify).
 
 ```sh
-node --test test/      # tests
+node --test test/*.test.ts      # tests
 npm run format:check   # formatting
 npm run typecheck      # types, after `npm install`
 ```
