@@ -1,5 +1,8 @@
 # opencode-kde-notify
 
+[![CI](https://github.com/tiagosantini/opencode-kde-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tiagosantini/opencode-kde-notify/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 Native KDE Plasma / freedesktop notifications for [OpenCode](https://opencode.ai) on Linux,
 delivered straight to D-Bus through `notify-send`.
 
@@ -37,6 +40,12 @@ Point to the absolute path in `~/.config/opencode/opencode.json`:
   "$schema": "https://opencode.ai/config.json",
   "plugins": ["/home/user/Projects/opencode-kde-notify"],
 }
+```
+
+### From GitHub
+
+```sh
+opencode plugin add github:tiagosantini/opencode-kde-notify
 ```
 
 ### Published on npm
@@ -149,6 +158,19 @@ Add the id to `plugins` in `cli.json`, prefixed with `-`:
 - **Plugin errors:** `~/.local/share/opencode/log/opencode.log` (look for `kde-notify`).
 - **Plugin detection:** `opencode plugin list` should show `kde.notify`.
 - **After structural changes:** run `/reload` in the TUI to reload plugins.
+- **Anything else:** open an issue at
+  [github.com/tiagosantini/opencode-kde-notify/issues](https://github.com/tiagosantini/opencode-kde-notify/issues).
+
+## Contributing
+
+Issues and pull requests are welcome at
+[github.com/tiagosantini/opencode-kde-notify](https://github.com/tiagosantini/opencode-kde-notify).
+
+```sh
+node --test test/      # tests
+npm run format:check   # formatting
+npm run typecheck      # types, after `npm install`
+```
 
 ## License
 

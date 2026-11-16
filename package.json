@@ -5,7 +5,18 @@
   "description": "Native KDE Plasma / freedesktop notifications for OpenCode on Linux, delivered directly over D-Bus",
   "type": "module",
   "license": "MIT",
-  "author": "Tiago Santini",
+  "author": {
+    "name": "Tiago Santini",
+    "url": "https://github.com/tiagosantini"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiagosantini/opencode-kde-notify.git"
+  },
+  "homepage": "https://github.com/tiagosantini/opencode-kde-notify#readme",
+  "bugs": {
+    "url": "https://github.com/tiagosantini/opencode-kde-notify/issues"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./tui": "./src/tui.ts"
