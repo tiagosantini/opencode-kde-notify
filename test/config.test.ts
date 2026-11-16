@@ -13,6 +13,7 @@ test('reads mode and when from the plugin options', () => {
     mode: 'always',
     when: 'always',
     desktopEntry: true,
+    focusOnClick: true,
   });
 });
 
@@ -22,6 +23,7 @@ test('options take precedence over environment variables', () => {
     mode: 'auto',
     when: 'blurred',
     desktopEntry: true,
+    focusOnClick: true,
   });
 });
 
@@ -31,6 +33,7 @@ test('accepts environment variables as an alternative to configuration', () => {
     mode: 'always',
     when: 'always',
     desktopEntry: true,
+    focusOnClick: true,
   });
 });
 
@@ -60,6 +63,44 @@ test('keeps desktopEntry on for unusable values', () => {
   assert.equal(
     readSettings(undefined, { OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY: 'never' }).desktopEntry,
     true,
+  );
+});
+
+test('reads the focusOnClick switch from options and environment', () => {
+  assert.equal(readSettings({ focusOnClick: false }, {}).focusOnClick, false);
+  assert.equal(readSettings({ focusOnClick: true }, {}).focusOnClick, true);
+  assert.equal(
+    readSettings(undefined, { OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK: 'false' }).focusOnClick,
+    false,
+  );
+  assert.equal(
+    readSettings(undefined, { OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK: 'true' }).focusOnClick,
+    true,
+  );
+  assert.equal(
+    readSettings({ focusOnClick: true }, { OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK: 'false' })
+      .focusOnClick,
+    true,
+  );
+  assert.equal(readSettings({ focusOnClick: 'nope' }, {}).focusOnClick, true);
+});
+
+test('reads focusCommand and drops blank values', () => {
+  assert.equal(
+    readSettings({ focusCommand: 'kitty @ focus-window' }, {}).focusCommand,
+    'kitty @ focus-window',
+  );
+  assert.equal(
+    readSettings(undefined, { OPENCODE_KDE_NOTIFY_FOCUS_COMMAND: 'xdotool getactivewindow' })
+      .focusCommand,
+    'xdotool getactivewindow',
+  );
+  assert.equal(readSettings({ focusCommand: '   ' }, {}).focusCommand, undefined);
+  assert.equal(readSettings({ focusCommand: 42 }, {}).focusCommand, undefined);
+  assert.equal(
+    readSettings({ focusCommand: 'option' }, { OPENCODE_KDE_NOTIFY_FOCUS_COMMAND: 'env' })
+      .focusCommand,
+    'option',
   );
 });
 

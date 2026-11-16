@@ -16,6 +16,10 @@ export interface Settings {
   readonly when: When;
   /** Write `opencode.desktop` so Plasma can attribute the notification. */
   readonly desktopEntry: boolean;
+  /** Make the bubble clickable and bring the terminal back when it is clicked. */
+  readonly focusOnClick: boolean;
+  /** Extra command run on click, after the built-in KWin focus step. */
+  readonly focusCommand?: string;
 }
 
 export interface Environment {
@@ -24,12 +28,15 @@ export interface Environment {
   readonly OPENCODE_KDE_NOTIFY_MODE?: string;
   readonly OPENCODE_KDE_NOTIFY_WHEN?: string;
   readonly OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY?: string;
+  readonly OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK?: string;
+  readonly OPENCODE_KDE_NOTIFY_FOCUS_COMMAND?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'auto',
   when: 'blurred',
   desktopEntry: true,
+  focusOnClick: true,
 };
 
 function parseMode(value: unknown): Mode | undefined {
@@ -40,26 +47,40 @@ function parseWhen(value: unknown): When | undefined {
   return value === 'blurred' || value === 'always' ? value : undefined;
 }
 
-function parseDesktopEntry(value: unknown): boolean | undefined {
+function parseBoolean(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
   if (value === 'false') return false;
   return undefined;
 }
 
+function parseCommand(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const command = value.trim();
+  return command ? command : undefined;
+}
+
 export function readSettings(
   options: Readonly<Record<string, unknown>> | undefined,
   env: Environment = {},
 ): Settings {
+  const focusCommand =
+    parseCommand(options?.focusCommand) ?? parseCommand(env.OPENCODE_KDE_NOTIFY_FOCUS_COMMAND);
+
   return {
     mode:
       parseMode(options?.mode) ?? parseMode(env.OPENCODE_KDE_NOTIFY_MODE) ?? DEFAULT_SETTINGS.mode,
     when:
       parseWhen(options?.when) ?? parseWhen(env.OPENCODE_KDE_NOTIFY_WHEN) ?? DEFAULT_SETTINGS.when,
     desktopEntry:
-      parseDesktopEntry(options?.desktopEntry) ??
-      parseDesktopEntry(env.OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY) ??
+      parseBoolean(options?.desktopEntry) ??
+      parseBoolean(env.OPENCODE_KDE_NOTIFY_DESKTOP_ENTRY) ??
       DEFAULT_SETTINGS.desktopEntry,
+    focusOnClick:
+      parseBoolean(options?.focusOnClick) ??
+      parseBoolean(env.OPENCODE_KDE_NOTIFY_FOCUS_ON_CLICK) ??
+      DEFAULT_SETTINGS.focusOnClick,
+    ...(focusCommand ? { focusCommand } : {}),
   };
 }
 

@@ -2,17 +2,40 @@ import type { Plugin } from '@opencode/plugin/tui';
 
 import { readSettings, shouldActivate, type When } from './config.ts';
 import { ensureDesktopEntry, type FileSystem } from './desktop.ts';
-import { compact, createSender, type ExecFile, type Log, type Notice } from './notify.ts';
+import {
+  ACTION_LABEL,
+  isKdeSession,
+  type Environment as FocusEnvironment,
+  type Focuser,
+} from './focus.ts';
+import {
+  compact,
+  createSender,
+  type ExecFile,
+  type Log,
+  type Notice,
+  type Spawn,
+} from './notify.ts';
 
 type Context = Plugin.Context;
 
+export interface FocusOptions {
+  readonly env: FocusEnvironment;
+  readonly command?: string;
+  readonly log: Log;
+}
+
 export interface Runtime {
-  /** Injected executor (tests and the plugin both use Node's `execFile`). */
+  /** Injected executor, used for tmux and KWin's D-Bus calls. */
   readonly exec: ExecFile;
+  /** Injected child process factory, used for the click-aware `notify-send`. */
+  readonly spawn: Spawn;
   readonly log?: Log;
   readonly env?: NodeJS.ProcessEnv;
-  /** Injected file access, used to install `opencode.desktop`. */
+  /** Injected file access, used to install `opencode.desktop` and focus scripts. */
   readonly fs?: FileSystem;
+  /** Builds the terminal focuser; omitted when the platform cannot provide one. */
+  readonly createFocus?: (options: FocusOptions) => Focuser;
 }
 
 export type Cleanup = () => void;
@@ -40,6 +63,20 @@ export function isSubagent(ctx: Context, sessionID: string): boolean {
 
 export function sessionTitle(ctx: Context, sessionID: string): string {
   return compact(sessionInfo(ctx, sessionID)?.title, FALLBACK_TITLE);
+}
+
+/**
+ * Selects the session that produced the notification inside the TUI. Falls back
+ * to navigation when tabs are disabled or the session has no tab.
+ */
+export function focusSession(ctx: Context, sessionID: string): void {
+  try {
+    const ui = ctx.ui as typeof ctx.ui | undefined;
+    if (ui?.tabs?.focus(sessionID)) return;
+    ui?.router?.navigate({ type: 'session', sessionID });
+  } catch {
+    // The TUI may already be gone.
+  }
 }
 
 /**
@@ -81,13 +118,23 @@ export function start(ctx: Context, runtime: Runtime): Cleanup | undefined {
     ensureDesktopEntry(runtime.fs, env, log);
   }
 
-  const send = createSender(runtime.exec, log);
+  const focuser =
+    settings.focusOnClick &&
+    (isKdeSession(env) || Boolean(settings.focusCommand)) &&
+    runtime.createFocus
+      ? runtime.createFocus({ env, command: settings.focusCommand, log })
+      : undefined;
+  const action = focuser ? ACTION_LABEL : undefined;
+  const sender = createSender(runtime.spawn, log);
 
-  const dispatch = (notice: Notice): void => {
+  const dispatch = (notice: Notice, sessionID: string): void => {
     void (async () => {
       try {
         if (await isFocused(ctx, notice, settings.when)) return;
-        send(notice);
+        sender.send(action ? { ...notice, action } : notice, () => {
+          focuser?.focus();
+          focusSession(ctx, sessionID);
+        });
       } catch (error) {
         log('[kde-notify] failed to notify', error);
       }
@@ -99,70 +146,87 @@ export function start(ctx: Context, runtime: Runtime): Cleanup | undefined {
     ctx.data.on('form.created', (event) => {
       const form = event.data.form;
       if (isSubagent(ctx, form.sessionID)) return;
-      dispatch({
-        title: 'OpenCode Question',
-        body: `${sessionTitle(ctx, form.sessionID)}: ${compact(form.title, 'Reply in the terminal')}`,
-        icon: 'dialog-question',
-        urgency: 'critical',
-        expire: 0,
-      });
+      dispatch(
+        {
+          title: 'OpenCode Question',
+          body: `${sessionTitle(ctx, form.sessionID)}: ${compact(form.title, 'Reply in the terminal')}`,
+          icon: 'dialog-question',
+          urgency: 'critical',
+          expire: 0,
+        },
+        form.sessionID,
+      );
     }),
 
     // Work finished
     ctx.data.on('session.execution.succeeded', (event) => {
       const sessionID = event.data.sessionID;
       if (isSubagent(ctx, sessionID)) return;
-      dispatch({
-        title: 'Task completed',
-        body: sessionTitle(ctx, sessionID),
-        icon: 'dialog-information',
-        urgency: 'normal',
-        expire: 8000,
-      });
+      dispatch(
+        {
+          title: 'Task completed',
+          body: sessionTitle(ctx, sessionID),
+          icon: 'dialog-information',
+          urgency: 'normal',
+          expire: 8000,
+        },
+        sessionID,
+      );
     }),
 
     // Execution failed
     ctx.data.on('session.execution.failed', (event) => {
       const sessionID = event.data.sessionID;
       if (isSubagent(ctx, sessionID)) return;
-      dispatch({
-        title: 'Execution failed',
-        body: `${sessionTitle(ctx, sessionID)}: ${compact(event.data.error.message, 'Unknown error')}`,
-        icon: 'dialog-error',
-        urgency: 'critical',
-        expire: 0,
-      });
+      dispatch(
+        {
+          title: 'Execution failed',
+          body: `${sessionTitle(ctx, sessionID)}: ${compact(event.data.error.message, 'Unknown error')}`,
+          icon: 'dialog-error',
+          urgency: 'critical',
+          expire: 0,
+        },
+        sessionID,
+      );
     }),
 
     // Execution interrupted
     ctx.data.on('session.execution.interrupted', (event) => {
       const sessionID = event.data.sessionID;
       if (isSubagent(ctx, sessionID)) return;
-      dispatch({
-        title: 'Execution interrupted',
-        body: sessionTitle(ctx, sessionID),
-        icon: 'process-stop',
-        urgency: 'normal',
-        expire: 8000,
-      });
+      dispatch(
+        {
+          title: 'Execution interrupted',
+          body: sessionTitle(ctx, sessionID),
+          icon: 'process-stop',
+          urgency: 'normal',
+          expire: 8000,
+        },
+        sessionID,
+      );
     }),
 
     // Permission waiting for a decision
     ctx.data.on('permission.asked', (event) => {
-      const { sessionID, action, resources, message } = event.data;
+      const { sessionID, action: permissionAction, resources, message } = event.data;
       if (isSubagent(ctx, sessionID)) return;
-      const detail = message ?? `${action}: ${resources[0] ?? 'resource'}`;
-      dispatch({
-        title: 'Permission required',
-        body: `${sessionTitle(ctx, sessionID)}: ${compact(detail, action)}`,
-        icon: 'dialog-password',
-        urgency: 'critical',
-        expire: 0,
-      });
+      const detail = message ?? `${permissionAction}: ${resources[0] ?? 'resource'}`;
+      dispatch(
+        {
+          title: 'Permission required',
+          body: `${sessionTitle(ctx, sessionID)}: ${compact(detail, permissionAction)}`,
+          icon: 'dialog-password',
+          urgency: 'critical',
+          expire: 0,
+        },
+        sessionID,
+      );
     }),
   ];
 
   return () => {
     for (const off of unsubscribe) off();
+    sender.dispose();
+    focuser?.dispose();
   };
 }

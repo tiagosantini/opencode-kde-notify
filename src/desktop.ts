@@ -19,6 +19,8 @@ export interface FileSystem {
   readFile(path: string): string | undefined;
   writeFile(path: string, content: string): void;
   makeDirectory(path: string): void;
+  /** Removes a file; failures are ignored by callers. */
+  removeFile(path: string): void;
 }
 
 export interface Environment {

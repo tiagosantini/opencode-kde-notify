@@ -22,6 +22,9 @@ function memoryFs(initial: Record<string, string> = {}) {
     makeDirectory: (path) => {
       directories.push(path);
     },
+    removeFile: (path) => {
+      files.delete(path);
+    },
   };
   return { fs, files, directories };
 }
@@ -82,6 +85,7 @@ test('leaves a desktop entry alone when it is identical', () => {
       fs.writeFile(target, content);
     },
     makeDirectory: fs.makeDirectory,
+    removeFile: fs.removeFile,
   };
 
   ensureDesktopEntry(counting, { HOME: '/home/user' });
@@ -108,6 +112,7 @@ test('reports write failures without throwing', () => {
       throw new Error('EROFS: read-only file system');
     },
     makeDirectory: () => {},
+    removeFile: () => {},
   };
 
   assert.doesNotThrow(() =>
