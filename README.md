@@ -183,12 +183,45 @@ OPENCODE_KDE_NOTIFY_FOCUS_COMMAND='kitty @ --match id:$KITTY_WINDOW_ID focus-win
 
 Environment variables are used only when the matching option is not set.
 
+## Releasing
+
+Releases are published by the `Release` workflow when `main` moves. Merging the release PR is the
+approval; no environment or repository secret is involved.
+
+1. Bump the version and finalize the changelog in a PR:
+
+   ```sh
+   npm version 0.2.0 --no-git-tag-version
+   ```
+
+   Rename `## [Unreleased]` to `## [0.2.0] - YYYY-MM-DD` in `CHANGELOG.md` and update the
+   comparison links at the bottom.
+
+2. Open the PR as `chore(release): 0.2.0` and rebase-merge it once CI is green.
+
+3. The workflow runs the tests, checks that the changelog has a section for the version, publishes
+   to npm with provenance, pushes the `v0.2.0` tag and creates the GitHub release.
+
+Ordinary merges are no-ops: the workflow only acts when the `package.json` version is neither
+tagged nor published. Re-running a failed release is safe and performs only the missing steps.
+
+One-time prerequisites:
+
+- On npmjs.com, add a trusted publisher for GitHub Actions: owner `tiagosantini`, repository
+  `opencode-kde-notify`, workflow `release.yml`, no environment.
+- An unvalidated trusted publisher expires after two days, so keep the configuration fresh until
+  its first successful publish.
+- No repository secrets are needed.
+
+To validate the workflow without publishing, run **Actions → Release → Run workflow** with
+`dry_run` enabled (the default). It prints the release state and checks the changelog.
+
 ## Development
 
 No dependencies required:
 
 ```sh
-node --test test/*.test.ts        # 63 tests, Node 22.18+ (native type stripping)
+node --test test/*.test.ts        # 64 tests, Node 22.18+ (native type stripping)
 ```
 
 With type checking:
