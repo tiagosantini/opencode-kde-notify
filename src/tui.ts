@@ -55,7 +55,7 @@ function readParentPid(pid: number): number | undefined {
 export default Plugin.define({
   id: 'kde.notify',
   setup(ctx) {
-    return start(ctx, {
+    const cleanup = start(ctx, {
       exec,
       spawn: spawnChild,
       fs: fileSystem,
@@ -71,5 +71,15 @@ export default Plugin.define({
           command,
         }),
     });
+    if (!cleanup) return undefined;
+
+    // Click waiters are `notify-send --wait` children. Kill them when OpenCode
+    // exits so sticky notifications do not leave orphaned processes behind.
+    const onExit = () => cleanup();
+    process.once('exit', onExit);
+    return () => {
+      process.off('exit', onExit);
+      cleanup();
+    };
   },
 });

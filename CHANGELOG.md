@@ -25,6 +25,8 @@ All notable changes to this project are documented here. The format follows
   the click and exits with the bubble.
 - Click support degrades gracefully: notifications stay non-interactive when libnotify is older
   than 0.8, when the server lacks action support, or when the session is not KDE.
+- Rapid clicks are coalesced into one focus run, and click waiters are stopped when OpenCode exits,
+  so no orphaned processes or temporary focus scripts are left behind.
 
 ## [0.1.1] - 2026-11-16
 

@@ -247,11 +247,14 @@ async function selectTmuxPane(exec: ExecFile, env: Environment, log: Log): Promi
 async function activateWindow(
   options: FocusOptions,
   directory: string,
-  tag: string,
+  fileTag: string,
+  nameTag: string,
   pids: readonly number[],
 ): Promise<void> {
-  const name = `opencode-kde-notify-${tag}`;
-  const file = `${directory}/focus-${tag}.js`;
+  const name = `opencode-kde-notify-${nameTag}`;
+  // One file per plugin process: a crash leaves at most one stale script, which
+  // the next click overwrites.
+  const file = `${directory}/focus-${fileTag}.js`;
 
   try {
     options.fs.makeDirectory(directory);
@@ -280,7 +283,7 @@ async function activateWindow(
 
     const scriptPath = `${SCRIPTING_PATH}/Script${id}`;
     await gdbus(options.exec, scriptPath, `${SCRIPT_INTERFACE}.run`);
-    await gdbus(options.exec, scriptPath, `${SCRIPT_INTERFACE}.stop`);
+    // `run` replies once the script has executed; unload also stops it.
     await gdbus(options.exec, SCRIPTING_PATH, `${SCRIPTING_INTERFACE}.unloadScript`, [name]);
   } catch (error) {
     options.log('[kde-notify] KWin focus failed', error);
@@ -306,6 +309,7 @@ export function createFocuser(options: FocusOptions): Focuser {
   const baseTag = options.tag ?? String(options.pid);
   let sequence = 0;
   let disposed = false;
+  let running = false;
 
   const focus = async (): Promise<void> => {
     try {
@@ -320,7 +324,7 @@ export function createFocuser(options: FocusOptions): Focuser {
         });
         if (pids.length > 0) {
           sequence += 1;
-          await activateWindow(options, directory, `${baseTag}-${sequence}`, pids);
+          await activateWindow(options, directory, baseTag, `${baseTag}-${sequence}`, pids);
         }
       }
     } catch (error) {
@@ -338,8 +342,11 @@ export function createFocuser(options: FocusOptions): Focuser {
 
   return {
     focus() {
-      if (disposed) return;
-      void focus();
+      if (disposed || running) return;
+      running = true;
+      void focus().finally(() => {
+        running = false;
+      });
     },
     dispose() {
       disposed = true;

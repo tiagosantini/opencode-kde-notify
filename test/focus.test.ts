@@ -62,6 +62,8 @@ function methodOf(call: ExecCall): string | undefined {
   return index < 0 ? undefined : call.args[index + 1];
 }
 
+const isLoad = (call: ExecCall): boolean => methodOf(call) === 'org.kde.kwin.Scripting.loadScript';
+
 test('the action label is user facing', () => {
   assert.equal(ACTION_LABEL, 'Focus terminal');
 });
@@ -155,9 +157,7 @@ test('parses the script id from gdbus output', () => {
 test('focuses the terminal through KWin and cleans up the script', async () => {
   const { fs, files, removed, directories } = memoryFs();
   const { exec, calls } = recordingExec((call) =>
-    methodOf(call)?.endsWith('loadScript')
-      ? { error: null, stdout: '(int32 7,)\n' }
-      : { error: null },
+    isLoad(call) ? { error: null, stdout: '(int32 7,)\n' } : { error: null },
   );
   const parents = new Map([[100, 90]]);
 
@@ -174,21 +174,20 @@ test('focuses the terminal through KWin and cleans up the script', async () => {
   await settle();
 
   assert.deepEqual(directories, ['/run/user/1000/opencode-kde-notify']);
-  assert.equal(files.has('/run/user/1000/opencode-kde-notify/focus-100-1.js'), false);
-  assert.deepEqual(removed, ['/run/user/1000/opencode-kde-notify/focus-100-1.js']);
+  assert.equal(files.has('/run/user/1000/opencode-kde-notify/focus-100.js'), false);
+  assert.deepEqual(removed, ['/run/user/1000/opencode-kde-notify/focus-100.js']);
   assert.deepEqual(
     calls.map((call) => methodOf(call)).filter((method) => method !== undefined),
     [
       'org.kde.kwin.Scripting.loadScript',
       'org.kde.kwin.Script.run',
-      'org.kde.kwin.Script.stop',
       'org.kde.kwin.Scripting.unloadScript',
     ],
   );
 
-  const load = calls.find((call) => methodOf(call)?.endsWith('loadScript'));
+  const load = calls.find((call) => isLoad(call));
   assert.ok(load);
-  assert.equal(load.args.at(-2), '/run/user/1000/opencode-kde-notify/focus-100-1.js');
+  assert.equal(load.args.at(-2), '/run/user/1000/opencode-kde-notify/focus-100.js');
   assert.match(load.args.at(-1) ?? '', /opencode-kde-notify-100-1/);
 
   const run = calls.find((call) => methodOf(call) === 'org.kde.kwin.Script.run');
@@ -198,7 +197,7 @@ test('focuses the terminal through KWin and cleans up the script', async () => {
 test('runs the tmux selection and the focus command in order', async () => {
   const { fs } = memoryFs();
   const { exec, calls } = recordingExec((call) => {
-    if (call.command === 'gdbus' && methodOf(call)?.endsWith('loadScript')) {
+    if (call.command === 'gdbus' && isLoad(call)) {
       return { error: null, stdout: '(int32 3,)\n' };
     }
     return { error: null };
@@ -273,7 +272,7 @@ test('reports a failed KWin script load and still removes the file', async () =>
     calls.map((call) => call.command),
     ['gdbus'],
   );
-  assert.deepEqual(removed, ['/run/user/1000/opencode-kde-notify/focus-100-1.js']);
+  assert.deepEqual(removed, ['/run/user/1000/opencode-kde-notify/focus-100.js']);
   assert.match(logs.join('\n'), /gdbus not found/);
 });
 
@@ -295,4 +294,30 @@ test('dispose stops pending focus runs', async () => {
   await settle();
 
   assert.deepEqual(calls, []);
+});
+
+test('coalesces rapid clicks into a single focus run', async () => {
+  const { fs } = memoryFs();
+  const { exec, calls } = recordingExec((call) =>
+    isLoad(call) ? { error: null, stdout: '(1,)\n' } : { error: null },
+  );
+
+  const focuser = createFocuser({
+    exec,
+    fs,
+    env: { KDE_FULL_SESSION: 'true', XDG_RUNTIME_DIR: '/run/user/1000' },
+    pid: 100,
+    parentPid: () => undefined,
+    tmpdir: '/tmp',
+    log: () => {},
+  });
+
+  focuser.focus();
+  focuser.focus();
+  await settle();
+  assert.equal(calls.filter((call) => isLoad(call)).length, 1);
+
+  focuser.focus();
+  await settle();
+  assert.equal(calls.filter((call) => isLoad(call)).length, 2);
 });
