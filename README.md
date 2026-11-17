@@ -279,7 +279,9 @@ To keep the notifications but stop making them clickable, set `focusOnClick: fal
   since the notification (the history is in memory only).
 - **Plugin errors:** `~/.local/share/opencode/log/opencode.log` (look for `kde-notify`).
 - **Plugin detection:** `opencode plugin list` should show `kde.notify`.
-- **After structural changes:** run `/reload` in the TUI to reload plugins.
+- **After plugin code or config changes:** quit the TUI and start it again (for example with
+  `opencode --continue`). `/reload` only reconciles server-side plugins; it does not re-run the
+  TUI plugin entrypoint, so code and option changes take effect only after a full restart.
 - **Anything else:** open an issue at
   [github.com/tiagosantini/opencode-kde-notify/issues](https://github.com/tiagosantini/opencode-kde-notify/issues).
 
